@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.2.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" hreflang="en" /><updated>2023-11-06T04:10:44-06:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">RB3NZR.blog</title><subtitle>Amature security posts &lt;b style=&quot;color: #f45;&quot;&gt;&amp;lt;3&lt;/b&gt;</subtitle><author><name>Beanz</name></author><entry><title type="html">Dusty Lab RAT Part 2 -&amp;gt; BTLO: Pandemic</title><link href="http://localhost:4000/A-Dusty-Lab-RAT-Part-2/" rel="alternate" type="text/html" title="Dusty Lab RAT Part 2 -&amp;gt; BTLO: Pandemic" /><published>2023-10-24T00:00:00-05:00</published><updated>2023-10-24T00:00:00-05:00</updated><id>http://localhost:4000/A-Dusty-Lab-RAT-Part-2</id><content type="html" xml:base="http://localhost:4000/A-Dusty-Lab-RAT-Part-2/"><![CDATA[<p>In this post, I will be going deeper on the sample used in my previous lab writeup. I will only cover some initial analysis and a look at the setup functionality of the loader/main server component. This post, like the previous one, is meant for practice and scratching a curiosity itch. The lab sample (<code class="language-plaintext highlighter-rouge">Cerberus RAT 1.03.5 Beta 2009</code>) surfaced around the same time that early <code class="language-plaintext highlighter-rouge">Spy-Net RAT</code> (2008-9) versions came out and heavily mirrors Spy-Net’s functionality. More well known RATs spawned from these early Spy-Net/Cerberus code bases(examples being <code class="language-plaintext highlighter-rouge">CyberGate Excel ('Rebhip')</code> and <code class="language-plaintext highlighter-rouge">Xtreme RAT</code>). A great article that goes into depth on these RAT’s evolution and history can be found <a href="https://www.reversinglabs.com/blog/spying-on-spynet">here</a>.</p>
+
+<h2 id="initial-analysis">Initial Analysis</h2>
+
+<p><em>Helpful tools used for setting up analysis on Delphi binaries:</em></p>
+<ul>
+  <li><a href="https://github.com/crypto2011/IDR">IDR</a>(Interactive Delphi Reconstructor) - based off of <a href="http://hmelnov.icc.ru/DCU/index.eng.html">DCU32INT</a></li>
+  <li><a href="https://github.com/huettenhain/dhrake">DHrake</a> - For importing IDC scripts from IDR to Ghidra and helping with structs and VMTs -&gt; (<a href="https://blag.nullteilerfrei.de/2019/12/23/reverse-engineering-delphi-binaries-in-ghidra-with-dhrake/">great blog post by Rattle on this</a>)</li>
+  <li><a href="https://github.com/threatlabz/tools/blob/main/danabot/idr_idc_to_idapy.py">IDR IDC to IDA</a> + <a href="https://github.com/threatlabz/tools/blob/main/danabot/idr_map_to_idapy.py">IDC map</a> - You could also use Delphi FLIRT signatures if using IDA</li>
+</ul>
+
+<p><em>The samples used here are ones that I generated. Here are some of the panel options when generating an implant:</em></p>
+
+<p><img src="../assets/img/builder_ss.png" alt="Alt text" /></p>
+
+<p>Using <a href="https://binref.github.io/">Binary Refinery</a> to list resources, I found resources named <code class="language-plaintext highlighter-rouge">CERBERUS</code> and <code class="language-plaintext highlighter-rouge">A02</code>. These resources are loaded in using <code class="language-plaintext highlighter-rouge">FindResourceA</code>, <code class="language-plaintext highlighter-rouge">LoadResource</code>, <code class="language-plaintext highlighter-rouge">LockResource</code>, and <code class="language-plaintext highlighter-rouge">SizeofResource</code> API calls. Then passing the loaded resource through a single XOR decryption routine. Configuration data is then decrypted with the same routine and glued into the loaded resource.</p>
+
+<p><em>Decryption and extraction of resources using Binref:</em></p>
+
+<p><img src="../assets/img/extract_resources.png" alt="Alt text" /></p>
+
+<p><em>Decryption routine of the loaded resource:</em></p>
+
+<p><img src="../assets/img/decrypt_server.png" alt="Alt text" /></p>
+
+<p>The extracted <code class="language-plaintext highlighter-rouge">CERBERUS</code> resource is revealed to be the main module/server component and a quick strings output over this DLL reveals config data, plugin module names, and some settings data in plain text.</p>
+
+<p><em>Module names from strings output:</em></p>
+
+<p><img src="../assets/img/modules.png" alt="Alt text" /></p>
+
+<p>The other resource <code class="language-plaintext highlighter-rouge">PERSIST/A02</code> is also a complete PE file and appears to be a dummy executable. The purpose of the dummy executable is for when the loader is unable to locate or startup Internet Explorer. If this happens it will open this dummy executable in a suspended state and inject the server into it.</p>
+
+<h2 id="the-loader">The Loader</h2>
+
+<p>The loader starts by attempting to acquire the <code class="language-plaintext highlighter-rouge">SeDebugPrivilege</code>, which is a privilege that allows a process to obtain any process handle and bypass any security descriptor (except protected processes). This is done by opening the process token, then using <code class="language-plaintext highlighter-rouge">AdjustTokenPrivileges</code> to enable the <code class="language-plaintext highlighter-rouge">SeDebugPrivilege</code>. It will then attempt to query HKU\Cerberus\Software\ for a “StartPersist” value name and delete it if it exists (both the loader and persisted server will query values in the registry on start up for host environment data to see if running as a first execution or not).</p>
+
+<p>The loader then runs a few anti-sandbox and anti-virtual environment functions. It starts by checking for VirtualPC (an old virtualization application for Windows hosts that was discontinued in 2011 in favor of Hyper-V) by setting up and exception handler, then executing illegal instructions that would, in a non-virtual environment, generate exceptions on the real CPU, but would be executed without exception in a VM (see <a href="https://www.felixcloutier.com/x86/ud">UD instructions</a>). It will check for VirtualBox by iterating processes using <code class="language-plaintext highlighter-rouge">CreateToolHelp32Snapshot</code>, searching for <code class="language-plaintext highlighter-rouge">'VBoxService.exe'</code>. It will check for VMWare by using the backdoor communications channel (if running in VMWare a port named ‘VX’ will be available for communication). It will also run a very outdated sandbox checking function, checking for sandboxie/anubis/CWsandbox/Joesandbox/threatexpert, using common Windows versions and DLLs that were used by these sandboxes at the time.</p>
+
+<p><img src="../assets/img/anti_vmsandboxspli2.png" alt="Alt text" />
+<img src="../assets/img/anti_vmsandboxspl1.png" alt="Alt text" /></p>
+
+<p>There is an option in the builder application that allows the attacker to enter a list of processes and services to be terminated when the loader is run. It will iterate through both of these lists of processes/services on the system and attempt to shut them down.</p>
+
+<p><img src="../assets/img/remove_procs.png" alt="Alt text" /></p>
+
+<p>After opening either Internet Explorer or the A02 dummy executable in a suspended state and loading the ‘CERBERUS’ server DLL into an arbitrary location in memory, the loader will run it’s main injection routine using the <a href="https://github.com/DSPlayer/memorymodule">BTMemoryModule</a> for Delphi. The technique allows the loading of the DLL from memory without storing it on disk (sort of similar to <a href="https://github.com/stephenfewer/ReflectiveDLLInjection">reflective DLL injection</a>). BTMemoryModule allows the DLL to be loaded as a TMemoryStream (stored in a dynamic memory buffer that is enhanced with file-like access capabilities) with <code class="language-plaintext highlighter-rouge">BTMemoryLoadLibrary</code> and <code class="language-plaintext highlighter-rouge">BTMemoryGetProcAddress</code>. <a href="https://www.joachim-bauch.de/tutorials/loading-a-dll-from-memory/comment-page-1/">This</a> is a great tutorial that goes over this process in more detail.</p>
+
+<p><em>Crappy PCode refactor of the injection routine in Ghidra:</em></p>
+
+<p><img src="../assets/img/in_memory_dll_injection.png" alt="Alt text" /></p>
+
+<p><em>View of the loaded DLL and components in RWX memory pages:</em></p>
+
+<p><img src="../assets/img/dllentry.png" alt="Alt text" /></p>
+
+<h2 id="the-server">The Server</h2>
+
+<p>The server starts off by loading in a stub file to append settings/config data to. There is then a single XOR decryption routine followed by an encoding routine that run over the configuration/settings data before gluing it to the stub file.</p>
+
+<p><em>Main string encryption routine found throughout the server:</em></p>
+
+<p><img src="../assets/img/encryption_routine.png" alt="Alt text" /></p>
+
+<p>Although we can easily access the config data from the extracted DLL, I would like to point out a really fun way to do this dynamically using <a href="https://frida.re/docs/frida-trace/">frida-trace</a>, which is a really neat tool. I found out about this after reading a series of <a href="https://www.hexacorn.com/blog/2022/01/28/delphi-api-monitoring-with-frida/">blog</a> <a href="https://www.hexacorn.com/blog/2022/02/20/delphi-api-monitoring-with-frida-part-3/">posts</a> made by Adam(@Hexacorn). As an example, these Cerberus samples usually will call Delphi string assignment, position, and concatenation functions after the decryption/decoding routines. If hooks are placed to intercept the arguments of these functions, and combined with hooks on some Windows API functions, we can get a great look into what is happening inside the sample. It’s also worth mentioning another tool that I used here to run frida-trace over just the server DLL alone from startup: <a href="https://hshrzd.wordpress.com/2016/07/21/how-to-turn-a-dll-into-a-standalone-exe/">dll_to_exe</a>.</p>
+
+<p><em>Example output from @LStrAsg, @LStrPos, and @LStrCmp:</em></p>
+
+<p><img src="../assets/img/trace_output.png" alt="Alt text" /></p>
+
+<blockquote>
+  <p>NOTE: Delphi 2006 and below use single byte ANSI characters, so all strings and chars are AnsiString and AnsiChar. Delphi 2009 introduced native unicode string support and mapped the generic string to UnicodeString</p>
+</blockquote>
+
+<p>The server will query the <code class="language-plaintext highlighter-rouge">HKU\Cerberus\Software</code> registry location for “identification” and “configfile” value names, which I can not figure out why, neither of those values are mentioned anywhere else. If it finds that it is running from <code class="language-plaintext highlighter-rouge">persist</code> it will create a mutex (custom) with <code class="language-plaintext highlighter-rouge">_PERSIST</code> appended at the end, while setting itself up before connection. If the server is not running from <code class="language-plaintext highlighter-rouge">'persist'</code> and was a first run execution, it will copy the loader to a new location in the file system, rename it, and delete the original. The new <code class="language-plaintext highlighter-rouge">'persist'</code> location is custom selected in the builder, ex: C:\Windows\Update\iexploreupdate.exe (hidden with <code class="language-plaintext highlighter-rouge">SetFileAttributesA() + sw_hide</code>).</p>
+
+<p>Information on persistence, setup, environment, paths etc., are encrypted with the same simple XOR cipher and encoding routine as mentioned before. Using <code class="language-plaintext highlighter-rouge">RegSetValueExA</code> the data is put in the <code class="language-plaintext highlighter-rouge">HKU\Cerberus\Software</code> location (as observed in the previous post). Looping through this encryption/encoding routine in the debugger reveals that environment, path, and configuration data are stored in this registry location.</p>
+
+<p><strong>HKLM\SOFTWARE\WOW6432Node\Microsoft\ActiveSetup\InstalledComponents*</strong></p>
+<ul>
+  <li>{6UQ65V1V-M4PS-4N51-6BDA-4JWNMI513T1H}\StubPath:”C:\Windows\DefinietlyInternetExplorer\IExplorerUpdate.exe Restart” (boot/logon persistence)</li>
+</ul>
+
+<p><strong>HKU\SID\Software\Cerberus*</strong></p>
+<ul>
+  <li>FirstExecution:”10/16/2023”</li>
+  <li>FileName:”Dlzcs1bl2+45iWIfMnZbSdbHXj9Bn(..SNIP..)” (path and information related to the loader)</li>
+  <li>HKLM:”JZGTLMqroNCIPiDadaltMA” (ASEP/runkey)</li>
+  <li>HKCU:”JZGTLMqroNCIPiDadaltPA” (ASEP/runkey)</li>
+  <li>StartPersist:”Dlzcs1bl2+45iWIfMnZbSdbHXj(..SNIP..)” (configuration data related to the server)</li>
+</ul>
+
+<p>Connection to the C&amp;C is done using <code class="language-plaintext highlighter-rouge">winsock</code> functions and uses the previously mentioned XOR encryption/encoding and decryption/decoding routine for sending and receving data. Once connected, a mutex (custom) is setup with <code class="language-plaintext highlighter-rouge">_SAIR</code> appended at the end. Pings are sent/recived every few seconds.</p>
+
+<p>If the plugin is not compiled with the loader then there is option to automatically send it over on first sucessful connection, or to send it via <code class="language-plaintext highlighter-rouge">URLDownloadToFileA</code>, or directly from the attacker’s machine. The plugin is a DLL that contains the other half of the server’s functions and is stored as a .dat file on disk (hidden with with SetFileAttributesA() + sw_hide) in the same directory as the copied loader and keylog data file (if enabled). Functions from the module are loaded in memory using the <code class="language-plaintext highlighter-rouge">BTMemoryModuleLoad</code> and resloved with <code class="language-plaintext highlighter-rouge">BTMemoryGetProcAddress</code>.</p>
+
+<p><img src="../assets/img/plugin_load.png" alt="Alt text" /></p>
+
+<p><em>Options from the C2 panel once connection is established:</em></p>
+
+<p><img src="../assets/img/c2_options.png" alt="Alt text" /></p>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>This is as much analysis as I want to do on this older sample as it’s not really relevant to anything current. Regardless, if anyone actually reads this (lol), and spots something I’ve gotten wrong, please send me a message on Discord!</p>
+
+<h2 id="resources">Resources</h2>
+
+<p><a href="https://www.reversinglabs.com/blog/spying-on-spynet">https://www.reversinglabs.com/blog/spying-on-spynet</a></p>
+
+<p><a href="https://www.joachim-bauch.de/tutorials/loading-a-dll-from-memory/comment-page-1/">https://www.joachim-bauch.de/tutorials/loading-a-dll-from-memory/comment-page-1/</a></p>
+
+<p><a href="https://www.felixcloutier.com/x86/ud">https://www.felixcloutier.com/x86/ud</a></p>
+
+<p><a href="https://github.com/malwares/Remote-Access-Trojan/tree/master/Spy-net.2.7.beta">https://github.com/malwares/Remote-Access-Trojan/tree/master/Spy-net.2.7.beta</a></p>
+
+<p><a href="https://www.hexacorn.com/blog/2022/01/28/delphi-api-monitoring-with-frida/">https://www.hexacorn.com/blog/2022/01/28/delphi-api-monitoring-with-frida/</a></p>
+
+<p><a href="https://hshrzd.wordpress.com/2016/07/21/how-to-turn-a-dll-into-a-standalone-exe/">https://hshrzd.wordpress.com/2016/07/21/how-to-turn-a-dll-into-a-standalone-exe/</a></p>
+
+<p><a href="https://www.hexacorn.com/blog/2022/01/28/delphi-api-monitoring-with-frida/">https://www.hexacorn.com/blog/2022/01/28/delphi-api-monitoring-with-frida/</a></p>
+
+<p><a href="https://frida.re/docs/frida-trace/">https://frida.re/docs/frida-trace/</a></p>
+
+<p><a href="https://blag.nullteilerfrei.de/2019/12/23/reverse-engineering-delphi-binaries-in-ghidra-with-dhrake/">https://blag.nullteilerfrei.de/2019/12/23/reverse-engineering-delphi-binaries-in-ghidra-with-dhrake/</a></p>
+
+<p><a href="https://binref.github.io/">https://binref.github.io/</a></p>
+
+<p><a href="https://github.com/crypto2011/IDR">https://github.com/crypto2011/IDR</a></p>
+
+<p><a href="http://hmelnov.icc.ru/DCU/index.eng.html">http://hmelnov.icc.ru/DCU/index.eng.html</a></p>
+
+<p><a href="https://github.com/huettenhain/dhrake">https://github.com/huettenhain/dhrake</a></p>]]></content><author><name>Beanz</name></author><summary type="html"><![CDATA[In this post, I will be going deeper on the sample used in my previous lab writeup. I will only cover some initial analysis and a look at the setup functionality of the loader/main server component. This post, like the previous one, is meant for practice and scratching a curiosity itch. The lab sample (Cerberus RAT 1.03.5 Beta 2009) surfaced around the same time that early Spy-Net RAT (2008-9) versions came out and heavily mirrors Spy-Net’s functionality. More well known RATs spawned from these early Spy-Net/Cerberus code bases(examples being CyberGate Excel ('Rebhip') and Xtreme RAT). A great article that goes into depth on these RAT’s evolution and history can be found here.]]></summary></entry><entry><title type="html">Dusty Lab RAT -&amp;gt; BTLO: Pandemic</title><link href="http://localhost:4000/A-Dusty-Lab-RAT_-BTLO-Pandemic/" rel="alternate" type="text/html" title="Dusty Lab RAT -&amp;gt; BTLO: Pandemic" /><published>2023-10-18T00:00:00-05:00</published><updated>2023-10-18T00:00:00-05:00</updated><id>http://localhost:4000/A-Dusty-Lab-RAT_-BTLO-Pandemic</id><content type="html" xml:base="http://localhost:4000/A-Dusty-Lab-RAT_-BTLO-Pandemic/"><![CDATA[<p>This writeup will walk through a dynamic malware analysis lab on <a href="https://blueteamlabs.online/">blueteamlabs</a> named Pandemic. The scenario for this lab is that we have a malware sample from some sort of phishing campaign and are tasked with analyzing it to figure out its functionality and grab some IOCs.</p>
+
+<p><strong>Scenario text:</strong> <em>The second wave of the pandemic started. Cybercriminals also started their second wave of attacks. Here comes the new phishing technique: Alert! Alert! Alert! There are Masks to safeguard yourself from the Pandemic, but do you have a Mask on your PC??? Our OS Vendor released a new PandemicSavior Updater which will act as a Mask to safeguard yourself from the Pandemic. Immediately download the attachment and Run the Update!!! Quick !!! As a malware analyst, your IR team approached you to decide whether the attachment is safe or not. If it’s not safe, provide the IoC’s. Malware sample and the necessary toolkit is available on the Desktop</em></p>
+
+<h2 id="initial-analysis">Initial Analysis</h2>
+
+<p>After dropping the sample in PE-View we can tell that the sample is most likely a <code class="language-plaintext highlighter-rouge">Delphi</code> binary, packed with <code class="language-plaintext highlighter-rouge">UPX</code>. We can tell from seeing DVCLAL (Delphi Visual Component Library Access License) in RCDATA and the compiler timestamp in the IMAGE_FILE_HEADER (the timestamp is a well-known bug in Delphi 4-2006). We see that the sample has a large resource labeled <code class="language-plaintext highlighter-rouge">CERBERUS</code> as well as an resource labeled <code class="language-plaintext highlighter-rouge">A02</code>. <code class="language-plaintext highlighter-rouge">answer 2: 19/06/1992, UPX</code>.</p>
+
+<p><img src="../assets/img/pe_view.png" alt="Alt text" /></p>
+
+<p>Making a copy of the sample in the directory and then dragging the copy to the desktop results in Defender quarantining the sample, labeling it as <code class="language-plaintext highlighter-rouge">'Worm:Win32/Rebhip.V'</code>. We can grab a hash of the sample with <code class="language-plaintext highlighter-rouge">Get-FileHash pandemichero.exe</code> in PowerShell and then search that on <code class="language-plaintext highlighter-rouge">virustotal.com</code>. Based on the results found on VT and finding ‘Cerberus’ a few times in PE View, we can make a good guess that this ‘Cerberus RAT’ (an older sample that was active from around the 2008-2010 time period (not to be confused with the popular APK banking trojan also named Cerberus)). <code class="language-plaintext highlighter-rouge">Answer 10: Cerberus</code>.</p>
+
+<p><strong>Sample hash: C4C83313F96E8D8C50F02249289DE652A2F757BD3012153DD26086463187C194</strong></p>
+
+<p>If we throw the sample in Resource Hacker and take a look at the icons, we can see the text <code class="language-plaintext highlighter-rouge">answer 1: Covid Mask</code>.</p>
+
+<p><img src="../assets/img/icon.png" alt="Alt text" /></p>
+
+<h2 id="dynamic-analysis">Dynamic Analysis</h2>
+
+<p>Running strings over the sample resulted in nothing interesting, so let’s go ahead and run the sample. Before doing this, we should use RegShot and run an initial snapshot of the registry, as well as open up <code class="language-plaintext highlighter-rouge">Process Explorer</code> and <code class="language-plaintext highlighter-rouge">Procmon</code>. Once the first registry snapshot runs, go ahead and execute the sample. Upon execution a message box pops up with: <code class="language-plaintext highlighter-rouge">answer 4: "Congratulations Pandemic Hero!, You took the step to protect your PC with this Mask"</code>, heck yeah!</p>
+
+<p>Watching the chain of execution in Process Explorer, we can see that the sample injects into <code class="language-plaintext highlighter-rouge">Answer 9: Internet Explorer</code>, which then shell executes <code class="language-plaintext highlighter-rouge">C:\Windows\touchmeagain.bat</code>. After adjusting file explorer view settings (disable all hides, enable show), we can see that the content of the batch script is a netcat command, with the verbose flag and IP/port: <code class="language-plaintext highlighter-rouge">answer 3: 172.16.104.128, 445</code>.</p>
+
+<p><img src="../assets/img/proc_tree.png" alt="Alt text" /></p>
+
+<p><img src="../assets/img/nc_batch.png" alt="Alt text" /></p>
+
+<p>Viewing network activity in Process Explorer, we see the Internet Explorer process attempting to make connections to <code class="language-plaintext highlighter-rouge">answer 8: box5210.bluehost.com - 162.241.224.203:5150</code> every 10 seconds or so, which we can guess would be the C&amp;C address. Taking a look at few other details of the running Internet Explorer process and we see a few unique mutexes (<code class="language-plaintext highlighter-rouge">Covid</code> and <code class="language-plaintext highlighter-rouge">Covid_Persist</code>). The other mutant that is interesting is <code class="language-plaintext highlighter-rouge">RasPbFile</code>, which really dates this sample back at least a decade (Microsoft RAS (Remote Access Service) has to do with the ‘Dial-Up Networking Monitor’ property sheet and other dialog boxes for managing or dialing phone book entries).</p>
+
+<p><img src="../assets/img/mutants.png" alt="Alt text" /></p>
+
+<h2 id="reviewing-log-captures">Reviewing Log Captures</h2>
+
+<p>Let’s now run a second snapshot of the registry with RegShot, and once that’s done, compare. Noticeable in the comparison of changes made in the registry are some values created under HKEY_CURRENT_USER\Software (these appear to be encrypted or encoded). Then for boot/logon persistence (<a href="https://attack.mitre.org/techniques/T1547/014/">T1547.014</a> and <a href="https://attack.mitre.org/techniques/T1547/001/">T1547.001</a>) there are ASEP(AutoStart Extenion Points)/RunKeys created in the HKEY_LOCAL_MACHINE and HKEY_CURRENT_USER hives with a stub path pointing to <code class="language-plaintext highlighter-rouge">answer 6: ImportantUpdate.exe</code>. An active setup component in HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node with the GUID and stub path of the ‘update’ binary (ImportantUpdate.exe) is also created. <code class="language-plaintext highlighter-rouge">Answer 7: ImportantUpdate</code>. The directory at <code class="language-plaintext highlighter-rouge">C:\Program Files (x86)\MSUpdate</code> is where this copied loader is stored in a hidden state.</p>
+
+<p><em>Under HKEY_CURRENT_USER\Software\CovidUpdater and HKEY_CURRENT_USER\Software\Cerberus:</em></p>
+
+<p><img src="../assets/img/under_HKU.png" alt="Alt text" /></p>
+
+<p><em>ASEP/Run keys under HKLM and HKCU</em></p>
+
+<p><img src="../assets/img/runkeys.png" alt="Alt text" /></p>
+
+<p><em>Active setup component:</em></p>
+
+<p><strong>HKLM\SOFTWARE\WOW6432Node\Microsoft\Active Setup\Installed Components\/{T5TBB77L-4678-0MKC-421Q-14416031DYU6}\StubPath: “C:\Program Files (x86)\MSUpdate\ImportantUpdate.exe Restart”</strong></p>
+
+<p>Looking through the Procmon log capture, we can see the server querying for some interesting files (‘PleaseStop.spy’ and ‘plugin.dat’ are queried for and not found). We can aslo see that it drops a keylog data file named <code class="language-plaintext highlighter-rouge">answer 5: footprint.dat</code> in the same MSUpdate directory as the loader copy.</p>
+
+<p><img src="../assets/img/nonex_files.png" alt="Alt text" /></p>
+
+<p><em>Confirming footprint.dat is the keylog file:</em></p>
+
+<p><img src="../assets/img/keylogger.png" alt="Alt text" /></p>
+
+<p>With this we have reached the end of this analysis lab! Cheers!</p>]]></content><author><name>Beanz</name></author><summary type="html"><![CDATA[This writeup will walk through a dynamic malware analysis lab on blueteamlabs named Pandemic. The scenario for this lab is that we have a malware sample from some sort of phishing campaign and are tasked with analyzing it to figure out its functionality and grab some IOCs. Scenario text: The second wave of the pandemic started. Cybercriminals also started their second wave of attacks. Here comes the new phishing technique: Alert! Alert! Alert! There are Masks to safeguard yourself from the Pandemic, but do you have a Mask on your PC??? Our OS Vendor released a new PandemicSavior Updater which will act as a Mask to safeguard yourself from the Pandemic. Immediately download the attachment and Run the Update!!! Quick !!! As a malware analyst, your IR team approached you to decide whether the attachment is safe or not. If it’s not safe, provide the IoC’s. Malware sample and the necessary toolkit is available on the Desktop]]></summary></entry></feed>
