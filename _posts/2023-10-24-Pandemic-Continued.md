@@ -10,7 +10,7 @@ In this post, I will be going deeper on the sample used in my previous BTLO chal
 ## Initial Analysis
 
 *Helpful tools used for setting up analysis on Delphi binaries:*
-- [IDR](https://github.com/crypto2011/IDR)(Interactive Delphi Reconstructor) - based off of [DCU32INT](http://hmelnov.icc.ru/DCU/index.eng.html)
+- [IDR](https://github.com/crypto2011/IDR)(Interactive Delphi Reconstructor) - based off of (http://hmelnov.icc.ru/DCU/index.eng.html)
 - [DHrake](https://github.com/huettenhain/dhrake) - For importing IDC scripts from IDR to Ghidra and helping with structs and VMTs -> ([great blog post by Rattle on this](https://blag.nullteilerfrei.de/2019/12/23/reverse-engineering-delphi-binaries-in-ghidra-with-dhrake/))
 - [IDR IDC to IDA](https://github.com/threatlabz/tools/blob/main/danabot/idr_idc_to_idapy.py) + [IDC map](https://github.com/threatlabz/tools/blob/main/danabot/idr_map_to_idapy.py) - You could also use Delphi FLIRT signatures if using IDA
 
@@ -116,8 +116,6 @@ The builder gives the option of compiling the server/implant with all of the fea
 [https://binref.github.io/](https://binref.github.io/)
 
 [https://github.com/crypto2011/IDR](https://github.com/crypto2011/IDR) 
-
-[http://hmelnov.icc.ru/DCU/index.eng.html](http://hmelnov.icc.ru/DCU/index.eng.html)
 
 [https://github.com/huettenhain/dhrake](https://github.com/huettenhain/dhrake)
 
