@@ -2,6 +2,7 @@
 layout: post
 title: "Analyzing a Sample of Redosdru"
 categories: malware
+tags: rat
 --- 
 
 This writeup takes a look at a recently uploaded sample of Redosdru, a RAT that's been around for a while. I'll cover config extraction and a quick look at some of it's features. 

@@ -2,6 +2,7 @@
 layout: post
 title: "BTLO: Pandemic Continued"
 categories: malware
+tags: rat
 ---
 
 In this post, I will be going deeper on the sample used in my previous BTLO challenge writeup. The challenge sample `Cerberus RAT 1.03.5 Beta 2009` surfaced around the same time that early `Spy-Net RAT` versions came out and heavily mirrors Spy-Net RAT's functionality. More well known RATs spawned from these early Spy-Net/Cerberus code bases with examples being `CyberGate Excel ('Rebhip')` and `Xtreme RAT` (more info [here](https://www.reversinglabs.com/blog/spying-on-spynet)).

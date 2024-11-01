@@ -1,7 +1,8 @@
 ---
 layout: post
-title: "Acknowledge the Corn"
-categories: forensics HTB
+title: "HTB: Acknowledge the Corn"
+categories: forensics
+tags: htb
 ---
 
 Writeup for the hard level forensic challenge "Acknowledge the corn" found [here](https://app.hackthebox.com/challenges/Acknowledge%2520the%2520corn)

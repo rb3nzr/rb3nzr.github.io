@@ -1,7 +1,8 @@
 ---
 layout: post
-title: "Windows Infinity Edge"
-categories: forensics HTB
+title: "HTB: Windows Infinity Edge"
+categories: forensics 
+tags: htb 
 ---
 
 Writeup for the hard level forensic challenge "Windows Infinity Edge" found [here](https://app.hackthebox.com/challenges/Window's%2520Infinity%2520Edge)
