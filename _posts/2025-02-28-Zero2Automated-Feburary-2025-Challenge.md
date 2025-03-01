@@ -2,7 +2,7 @@
 layout: post
 title: "Zero2Automated February 2025 Challenge: PlugX Analysis"
 categories: malware
-tags: rat, plugx
+tags: rat plugx
 --- 
 
 This write up covers my analysis for this month's Zero2Automated bi-monthly malware challenge, posted in the discord. The list of sample files can be found [here](https://github.com/StrikeReady-Inc/samples/tree/main/2024-08-01%20Meeting%20invitation). 
