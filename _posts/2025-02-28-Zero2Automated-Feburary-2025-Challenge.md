@@ -67,7 +67,7 @@ With no command line arguments the process will create a copy of the main module
 SamsungDriver (loader & logitech)
 Intelnet (loader & logitech)
 SecurityScan (loader & logitech)
-
+VirtualFile (loader & logitech)
 ```
 ## Inside hid.dll
 Looking at the loaded DLL inside the logitech processes an you can see an `HidD_GetHidGuid` export (same as in the legit hid.dll) and a `NimMain`. Looking at the strings and things like `Winim` and some other Nim libraries are noticeable. Looking through a few of the functions in the `HidD_GetHidGuid` there is one that looks like it resolves imports from hard coded hash values. To resolve these I just parsed the suspected libraries that I though it would be pulling suspicious functions from, calculate and store the hash values in a dictionary, locate the hash values in Binja by scanning each basic block's disassembly for numeric tokens, parse it as an integer and see if it matches an entry in the dictionary. 
@@ -144,7 +144,7 @@ def annotate_hashed_imports():
 annotate_hashed_imports()
 ```
 ### Sending Messages
-Now with some things marked up and having gone through the main export function a few times in the debugger it was clear that some tomfoolery was happening with GUI windows and a messaging routine (windows and message functions dynamically resolved from the hashes). I opted to create a few hooks for Frida to log the details of these calls (full hooks [here](https://github.com/rb3nzr/MA-Tools/PlugX/window_msg_hooks.js)). I ran the binary with `frida -f <location of the logi binary on disk w/ hid.dll> 401 -l hooks.js` where the 401 is just a random three digit argument (for watching this window/message routine specifically you don't need to pass any args, but it's going to keep popping up that stupid decoy PDF if you don't). 
+Now with some things marked up and having gone through the main export function a few times in the debugger it was clear that some tomfoolery was happening with GUI windows and a messaging routine (windows and message functions dynamically resolved from the hashes). I opted to create a few hooks for Frida to log the details of these calls (full hooks [here](https://github.com/rb3nzr/MA-Tools/blob/main/PlugX/window_msg_hooks.js)). I ran the binary with `frida -f <location of the logi binary on disk w/ hid.dll> 401 -l hooks.js` where the 401 is just a random three digit argument (for watching this window/message routine specifically you don't need to pass any args, but it's going to keep popping up that stupid decoy PDF if you don't). 
 
 ```javascript
 // Hooks for the below output
@@ -246,7 +246,7 @@ Stack strings are also fairly difficult to deal with  in this sample, as almost 
 
 ![](../media/plugx/string_construction.png)
 
-I started to try decoding some of these by using [FLOSS](https://github.com/mandiant/flare-floss), which got a decent handful of decoded strings, but far from anything near the total amount. I was having some issues with the [script](https://github.com/mandiant/flare-floss/blob/master/scripts/render-binja-import-script.py) that generates another script from the FLOSS output to mark up results in Binja, so I created a new one [here](https://github.com/rb3nzr/MA-Tools/blob/main/Binja%20Helpers/floss_to_binja.py). Next I tried to create YARA rules to detect the right positions at the start/end of the construction and decoding routines, with the goal of using qiling to emulate the right locations, but for each success I could only get detections on a few of these routines for each signature set. A common routine pattern found was the one above, so I started testing out a way to locate and decode based on that pattern ([snippet](https://github.com/rb3nzr/MA-Tools/PlugX/partial_stack_strings.py) here). Goal was to find constant stores and XMM loads, and try out a few repeated decoding routines (decode routine in the snippet works for a good amount of API names). Definitely need emulation here (lol).
+I started to try decoding some of these by using [FLOSS](https://github.com/mandiant/flare-floss), which got a decent handful of decoded strings, but far from anything near the total amount. I was having some issues with the [script](https://github.com/mandiant/flare-floss/blob/master/scripts/render-binja-import-script.py) that generates another script from the FLOSS output to mark up results in Binja, so I created a new one [here](https://github.com/rb3nzr/MA-Tools/blob/main/Binja%20Helpers/floss_to_binja.py). Next I tried to create YARA rules to detect the right positions at the start/end of the construction and decoding routines, with the goal of using qiling to emulate the right locations, but for each success I could only get detections on a few of these routines for each signature set. A common routine pattern found was the one above, so I started testing out a way to locate and decode based on that pattern ([snippet]([https://github.com/rb3nzr/MA-Tools/PlugX/partial_stack_strings.py](https://github.com/rb3nzr/MA-Tools/blob/main/PlugX/partial_stack_strings.py)) here). Goal was to find constant stores and XMM loads, and try out a few repeated decoding routines (decode routine in the snippet works for a good amount of API names). Definitely need emulation here (lol).
 
 ![](../media/plugx/stackstringsoutput.png)
 
