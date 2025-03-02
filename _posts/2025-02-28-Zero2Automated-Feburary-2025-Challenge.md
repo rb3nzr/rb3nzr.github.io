@@ -5,7 +5,7 @@ categories: malware
 tags: rat plugx
 --- 
 
-This write up covers my analysis for this month's Zero2Automated bi-monthly malware challenge, posted in the discord. The list of sample files can be found [here](https://github.com/StrikeReady-Inc/samples/tree/main/2024-08-01%20Meeting%20invitation). 
+This write up covers my analysis for this month's Zero2Automated bi-monthly malware challenge, which was posted in the discord. The list of sample files can be found [here](https://github.com/StrikeReady-Inc/samples/tree/main/2024-08-01%20Meeting%20invitation). 
 
 After a quick look up of the file hashes and viewing online sandbox reports, the files appear to be associated with [PlugX/Korplug](https://malpedia.caad.fkie.fraunhofer.de/details/win.plugx) from around mid year 2024. PlugX/Korplug being a modular RAT that's commonly used by Chinese and DPRK APTs for espionage and persistence in compromised systems. Frequently observed in targeted attacks against government agencies, defense contractors, and research institutions. 
 
@@ -147,6 +147,8 @@ annotate_hashed_imports()
 Now with some things marked up and having gone through the main export function a few times in the debugger it was clear that some tomfoolery was happening with GUI windows and a messaging routine (windows and message functions dynamically resolved from the hashes). I opted to create a few hooks for Frida to log the details of these calls (full hooks [here](https://github.com/rb3nzr/MA-Tools/PlugX/window_msg_hooks.js)). I ran the binary with `frida -f <location of the logi binary on disk w/ hid.dll> 401 -l hooks.js` where the 401 is just a random three digit argument (for watching this window/message routine specifically you don't need to pass any args, but it's going to keep popping up that stupid decoy PDF if you don't). 
 
 ```javascript
+// Hooks for the below output
+// Snipped style flags & mesage name constants
 function getWindowText(hWnd) {
     if (hWnd.isNull()) return 'NULL';
     try {
@@ -416,7 +418,7 @@ The sample offered 19 cipher suites, and the server chose `TLS_ECDHE_ECDSA_WITH_
 ## Conclusion
 The `Meeting Invitation` files and abuse of the MMC are seen in the [DarkPeony](https://hunt.io/blog/darkpeony-certificate-patterns) (DPRK or China, i've seen posts referring to them as under lazarus group as well as labeling as a suspected Chinese group) campaign operation ControlPlug. However the bulk of files from this challenge were seen in a campaign tied to [RedDelta](https://malpedia.caad.fkie.fraunhofer.de/actor/reddelta) targeting various countries in southeast Asia with an adapted PlugX infection chain (the challenge files appear to be one of RedDelta's modified PlugX variants [IOCs match](https://www.recordedfuture.com/research/reddelta-chinese-state-sponsored-group-targets-mongolia-taiwan-southeast-asia)). 
 
-## Rules & IOCs
+## Rules
 ```text
 import "pe"
 
